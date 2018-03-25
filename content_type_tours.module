@@ -1,0 +1,180 @@
+<?php
+
+/**
+ * @file
+ * Contains content_type_tours.module.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\tour\Entity\Tour;
+/**
+ * Implements hook_help().
+ */
+function content_type_tours_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the content_type_tours module.
+    case 'help.page.content_type_tours':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Extends Tour UI to create tours specific to node add/edit pages') . '</p>';
+      return $output;
+
+    default:
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function content_type_tours_form_tour_form_alter(&$form, FormStateInterface $form_state) {
+
+  $tour_config = $form_state->getFormObject()->getEntity();
+  $tour_node_types = $tour_config->getThirdPartySetting('content_type_tours', 'tour_node_types');
+  $is_node_tour = $tour_config->getThirdPartySetting('content_type_tours', 'is_node_tour');
+  $tour_node_defaults = empty($tour_node_types) ? [] : $tour_node_types;
+  $form['label']['#weight'] = 5;
+  $form['langcode']['#weight'] = 10;
+  $form['module']['#weight'] = 15;
+  $form['module']['#prefix'] = '<div id="module-field-wrapper">';
+  $form['module']['#suffix'] = '</div>';
+  if($is_node_tour) {
+    $form['module']['#attributes']['style'] = "display:none";
+    $form['module']['#title_display'] = 'hidden';
+    $form['module']['#description'] = '';
+  }
+
+  $form['is_node_tour'] = [
+    '#type' => 'checkbox',
+    '#title' => t('Make this a node tour'),
+    '#weight' => 20,
+    '#description' => t('This will hide the "routes" and "module_name" field, and you can assign your tour to node add/edit forms instead'),
+    '#ajax' => [
+      'callback' => 'content_type_tours_checkbox_callback',
+      'wrapper' => 'module-field-wrapper',
+    ],
+    '#default_value' => $is_node_tour
+  ];
+
+  $contentTypes = \Drupal::service('entity.manager')->getStorage('node_type')->loadMultiple();
+
+  $contentTypesOptions = [];
+  foreach ($contentTypes as $contentType) {
+    $contentTypesOptions[$contentType->id().'_add'] = $contentType->label().' (Add)';
+    $contentTypesOptions[$contentType->id().'_edit'] = $contentType->label().' (Edit)';
+  }
+
+  $form['which_nodes'] = [
+    '#type' => 'checkboxes',
+    '#options' => $contentTypesOptions,
+    '#title' => t('Tour applies to these forms:'),
+    '#states' => [
+      'visible' => [
+        'input[name="is_node_tour"]' => ['checked' => TRUE],
+      ],
+    ],
+    '#weight' => 25,
+    '#default_value' => $tour_node_defaults
+  ];
+
+  $form['routes']['#weight'] = 30;
+  $form['routes']['#states'] = [
+    'visible' => [
+      'input[name="is_node_tour"]' => ['checked' => FALSE],
+    ]
+  ];
+
+  $form['actions']['#weight'] = 35;
+
+  $form['#entity_builders'][] = 'content_type_tours_config_entity_save';
+
+
+}
+
+function content_type_tours_config_entity_save($entity_type,  $entity, &$form, FormStateInterface $form_state){
+
+  if($form_state->isValidationComplete()){
+    $triggering_element = $form_state->getTriggeringElement();
+
+    if(!empty($triggering_element['#executes_submit_callback'])) {
+      $tour_ids = \Drupal::state()->get('content_type_tours.tour_ids', []);
+      $id = $entity->id();
+
+      // Remove the tour id from all node tour listings, then add back if needed
+      foreach($tour_ids as $k => $v){
+        $tour_ids[$k] = array_diff($v,[$id]);
+      }
+
+      $values = $form_state->getValues();
+      $entity->unsetThirdPartySetting('content_type_tours', 'tour_node_types');
+      $entity->unsetThirdPartySetting('content_type_tours', 'is_node_tour');
+      if(!empty($values['is_node_tour'])) {
+        $form_state->setValue('routes', 'node_tour.placeholder.route');
+        $which_nodes = array_filter($values['which_nodes'], function($a){
+          return $a;
+        });
+
+        $entity->setThirdPartySetting('content_type_tours', 'tour_node_types', array_keys($which_nodes));
+        $entity->setThirdPartySetting('content_type_tours', 'is_node_tour', true);
+        foreach($which_nodes as $k => $v) {
+          $tour_ids[$k][] = $id;
+        }
+      }
+       \Drupal::state()->set('content_type_tours.tour_ids', $tour_ids);
+    }
+  }
+}
+
+/**
+ * Ajax callback to change value of module field if node tours is enabled
+ */
+function content_type_tours_checkbox_callback(array $form, FormStateInterface $form_state) {
+  if(!empty($form['is_node_tour']['#value'])) {
+    $form['module']['#value'] = "content_type_tours";
+    $form['module']['#prefix'] = '<div id="module-field-wrapper" style="display:none;">';
+    $form['module']['#suffix'] = '</div>';
+    $form['module']['#disabled'] = false;
+    $form['module']['#attributes']['style'] = "display:none";
+    $form['module']['#title_display'] = 'hidden';
+    $form['module']['#description'] = '';
+  }else {
+    $form['module']['#value'] = "";
+    $form['module']['#prefix'] = '<div id="module-field-wrapper">';
+    $form['module']['#suffix'] = '</div>';
+    $form['module']['#title_display'] = 'before';
+    $form['module']['#description'] = 'Each tour needs a module.';
+  }
+
+  return $form['module'];
+}
+
+function content_type_tours_page_bottom(array &$page_bottom) {
+  $route_name = \Drupal::routeMatch()->getRouteName();
+
+  $current_path = \Drupal::service('path.current')->getPath();
+  $path_args = explode('/', $current_path);
+
+  if($route_name ==  'entity.node.edit_form') {
+    $node = \Drupal\node\Entity\Node::load($path_args[2]);
+    $nodetype = $node->getType().'_edit';
+  }
+
+  if($route_name ==  'node.add') {
+    $nodetype = !empty($path_args[3]) ? $path_args[3].'_add' : false;
+  }
+  $tour_ids = \Drupal::state()->get('content_type_tours.tour_ids', []);
+
+  if(!empty($nodetype) && !empty($tour_ids[$nodetype])){
+    if ( $tours = Tour::loadMultiple($tour_ids[$nodetype])) {
+      if (!empty($tours)) {
+        $page_bottom['tour'] = entity_view_multiple($tours, 'full');
+      }
+    }
+  }
+}
+/**
+ * Implements hook_form_BASE_FORM_ID_alter().
+ */
+function content_type_tours_form_node_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  $form['#attached']['library'][] = 'content_type_tours/content_type_tour';
+}

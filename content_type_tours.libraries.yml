@@ -1,0 +1,7 @@
+content_type_tour:
+  version: VERSION
+  js:
+    js/content_type_tour.js: {}
+  dependencies:
+      - core/jquery
+      - core/drupal

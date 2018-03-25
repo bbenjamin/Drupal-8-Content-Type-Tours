@@ -1,0 +1,8 @@
+name: Node Tours
+type: module
+description: Extends Tour UI to create tours specific to node add/edit pages
+core: 8.x
+package: Development
+dependencies:
+  - tour
+  - tour_ui
