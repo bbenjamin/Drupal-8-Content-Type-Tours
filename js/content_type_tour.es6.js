@@ -9,7 +9,7 @@
   Drupal.behaviors.contentTypeTour = {
     attach: function attach(context) {
       const $tour = $('#tour', context);
-      if ($tour.length) {
+      if($tour.length) {
         $tour.joyride({
           preStepCallback: (a, b) => {
             const id = $tour.find('li').eq(a).attr('data-id');
@@ -26,11 +26,13 @@
                   if ($detailcontainer.hasClass('field-group-tab')) {
                     const tabId = $detailcontainer.attr('id');
                     $(`a[href='#${tabId}']`).click();
-                  } else {
+                  }
+                  else {
                     // if it is just a collapsed details element
                     $attachTip.closest('details').find('summary').click();
                   }
-                } else if ($accordioncontainer.length > 0) {
+                }
+                else if ($accordioncontainer.length > 0) {
                   // get the attribute that will get us to the accordion item open button
                   // then click it to open the accordion
                   const accid = $accordioncontainer.attr('aria-labelledby');
@@ -38,9 +40,9 @@
                 }
               }
             }
-          }
+          },
         });
       }
-    }
+    },
   };
 })(jQuery, Drupal);
